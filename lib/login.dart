@@ -1,64 +1,94 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'main.dart';
 import 'firstTipi.dart';
+import 'firebaseService.dart'; 
+import 'package:shared_preferences/shared_preferences.dart';
+import 'hive_service.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
   _LoginScreenState createState() => _LoginScreenState();
 }
 
-
-
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscureText = true;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseService _firebaseService = FirebaseService(); 
 
   @override
   void initState() {
     super.initState();
-    _checkUserStatus(); 
+    _checkUserStatus();
   }
 
-  Future<void> _checkUserStatus() async {
-  final prefs = await SharedPreferences.getInstance();
-  final uid = prefs.getString('uid');
+  Future<void> _checkUserStatus() async { 
+    final prefs = await SharedPreferences.getInstance();
+    final existingUid = prefs.getString('uid');
+    final isGuest = prefs.getBool('isGuest') ?? false;
 
-  if (uid != null) {
-    
-    try {
-      final personalityTestQuery = await FirebaseFirestore.instance
-          .collection('personalityTest')
-          .where('userID', isEqualTo: uid) 
-          .limit(1)
-          .get();
-
-      if (personalityTestQuery.docs.isNotEmpty) {
-        
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => QuoteScreen()),
-        );
+    if (existingUid != null) {
+      if (!isGuest) {
+        try {
+          final hasCompletedTest = await _firebaseService.checkIfPersonalityTestCompleted(existingUid);
+          if (hasCompletedTest) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => QuoteScreen()),
+            );
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => FirstPersonalityTestScreen()),
+            );
+          }
+        } catch (e) {
+          print('Error checking user status: $e');
+        }
       } else {
-        
+        final personalityBox = HiveService.getPersonalityTestResultsBox();
+        if (personalityBox.containsKey(existingUid)) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => QuoteScreen()),
+          );
+      } else {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => FirstPersonalityTestScreen()),
         );
+        }
       }
-    } catch (e) {
-      print('Error checking personality test: $e');
-      
     }
-  } else {
-    
-  }
   }
 
+  Future<void> _continueAsGuest() async {
+  final prefs = await SharedPreferences.getInstance();
+  final guestUid = "guest"; // Your predefined guest ID
+  final HiveService hiveService = HiveService(); // Instantiate HiveService
+
+  // Set guest status and UID in SharedPreferences
+  await prefs.setString('uid', guestUid);
+  await prefs.setBool('isGuest', true);
+
+  // Check if personality test results exist for this guest ID in Hive
+  final bool personalityTestExists = await hiveService.doesPersonalityTestExist(guestUid);
+
+  if (personalityTestExists) {
+    print('Guest user has existing personality test results. Navigating to HomeScreen.');
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => QuoteScreen()), // Go to QuoteScreen
+    );
+  } else {
+    print('Guest user does not have personality test results. Navigating to FirstPersonalityTestScreen.');
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => FirstPersonalityTestScreen()), // Go to PersonalityTestScreen
+    );
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -124,14 +154,12 @@ class _LoginScreenState extends State<LoginScreen> {
               ElevatedButton(
                 onPressed: () async {
                   try {
-                    final UserCredential userCredential =
-                        await _auth.signInWithEmailAndPassword(
-                      email: _emailController.text,
-                      password: _passwordController.text,
+                    final userCredential = await _firebaseService.signInWithEmailAndPassword(
+                      _emailController.text,
+                      _passwordController.text,
                     );
                     print('Logged in as: ${userCredential.user!.email}');
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString('uid', userCredential.user!.uid);
+                    await _firebaseService.saveUserId(userCredential.user!.uid);
 
                     Navigator.pushReplacement(
                       context,
@@ -144,11 +172,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     } else if (e.code == 'wrong-password') {
                       errorMessage = 'Wrong password provided for that user.';
                     } else if (e.code == 'invalid-email') {
-                       errorMessage = 'Invalid email format.';
+                      errorMessage = 'Invalid email format.';
                     } else if (e.code == 'too-many-requests') {
                       errorMessage = 'Too many requests. Try again later.';
-                    }
-                     else {
+                    } else {
                       errorMessage = 'An error occurred during login.';
                     }
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
@@ -166,6 +193,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Text('Login', style: TextStyle(fontSize: 16)),
               ),
               SizedBox(height: 16),
+              ElevatedButton( 
+                onPressed: _continueAsGuest,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey[300],
+                  foregroundColor: Colors.black,
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text('Continue as Guest', style: TextStyle(fontSize: 16)),
+              ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -199,19 +238,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   final _usernameController = TextEditingController();
   bool _obscureText = true;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  Future<void> _createUserDocument(User user, String username) async {
-    try {
-      await _firestore.collection('user').doc(user.uid).set({
-        'username': username,
-        'preference': [],
-      });
-    } catch (e) {
-      print('Error creating user document: $e');
-    }
-  }
+  final FirebaseService _firebaseService = FirebaseService(); 
 
   @override
   Widget build(BuildContext context) {
@@ -233,8 +260,8 @@ class _SignupScreenState extends State<SignupScreen> {
               TextFormField(
                 controller: _usernameController,
                 decoration: InputDecoration(
-                hintText: 'Enter Your Username',
-                border: OutlineInputBorder(
+                  hintText: 'Enter Your Username',
+                  border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide.none,
                   ),
@@ -284,14 +311,12 @@ class _SignupScreenState extends State<SignupScreen> {
               ElevatedButton(
                 onPressed: () async {
                   try {
-                    final UserCredential userCredential =
-                        await _auth.createUserWithEmailAndPassword(
-                      email: _emailController.text,
-                      password: _passwordController.text,
+                    final userCredential = await _firebaseService.createUserWithEmailAndPassword(
+                      _emailController.text,
+                      _passwordController.text,
                     );
-                    await _createUserDocument(userCredential.user!, _usernameController.text);
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString('uid', userCredential.user!.uid);
+                    await _firebaseService.createUserDocument(userCredential.user!, _usernameController.text);
+                    await _firebaseService.saveUserId(userCredential.user!.uid);
 
                     print('Signed up user: ${userCredential.user!.email}');
                     Navigator.pushReplacement(
@@ -305,15 +330,17 @@ class _SignupScreenState extends State<SignupScreen> {
                     } else if (e.code == 'email-already-in-use') {
                       errorMessage = 'The account already exists for that email.';
                     } else if (e.code == 'invalid-email') {
-                       errorMessage = 'The email address is badly formatted.';
-                    } else if (e.code == 'too-many-requests'){
+                      errorMessage = 'The email address is badly formatted.';
+                    } else if (e.code == 'too-many-requests') {
                       errorMessage = 'Too many requests try again later.';
-                    }
-                     else {
+                    } else {
                       errorMessage = 'An error occurred during signup.';
                     }
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
                     print(e.code);
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error creating user data.')));
+                    print(e);
                   }
                 },
                 style: ElevatedButton.styleFrom(

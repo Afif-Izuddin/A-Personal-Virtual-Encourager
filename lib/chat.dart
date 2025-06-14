@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'geminiService.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebaseService.dart'; // Import FirebaseService
+import 'hive_service.dart'; // Import HiveService
 
 class ChatScreen extends StatefulWidget {
   @override
@@ -11,20 +11,22 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final Geminiservice _geminiService = Geminiservice();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseService _firebaseService = FirebaseService(); // Instantiate FirebaseService
+  final HiveService _hiveService = HiveService(); // Instantiate HiveService
   Map<String, dynamic>? _personalityData;
-  
-  List<String> options = [ 
-    "I’m feeling unwell, Please cheer me up!", 
-    "I need motivation to get ready in the morning!", 
-    "Give me some positive thoughts!", 
-    "How can I stay motivated?", 
-    "Any tips to stay positive?", 
+
+  List<String> options = [
+    "I’m feeling unwell, Please cheer me up!",
+    "I need motivation to get ready in the morning!",
+    "Give me some positive thoughts!",
+    "How can I stay motivated?",
+    "Any tips to stay positive?",
   ];
 
   String _userId = "";
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = false;
+  bool _isGuest = false;
 
   @override
   void initState() {
@@ -33,89 +35,110 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadUserDataAndMessages() async {
-    await loadUserID();
+    await _loadUserIdAndGuestStatus();
     if (_userId.isNotEmpty) {
-      await _loadMessages(); 
-      if (_messages.isEmpty) {
-        _addInitialBotMessage();
+      await _loadMessages();
+      if (_messages.isEmpty && !_isGuest) {
+        _addInitialBotMessageToFirebase();
+      } else if (_messages.isEmpty && _isGuest) {
+        _addInitialBotMessageToHive();
       }
+      await _loadPersonalityData();
     }
   }
 
-  Future<void> loadUserID() async {
-    final prefs = await SharedPreferences.getInstance();
+  Future<void> _loadUserIdAndGuestStatus() async {
+    final userId = await _firebaseService.getCurrentUserId();
+    final isGuestStatus = await _firebaseService.getGuestStatus();
     setState(() {
-      _userId = prefs.getString('uid') ?? "";
+      _userId = userId ?? "";
+      _isGuest = isGuestStatus;
     });
   }
 
-  Future<void> _addInitialBotMessage() async {
+  Future<void> _addInitialBotMessageToFirebase() async {
     final initialMessage = {
       "text": "Hello, I’m PositiveBot! 👋 I’m your personal virtual encourager. How may I encourage you?",
       "isBot": true,
-      'timestamp': FieldValue.serverTimestamp(),
+      'timestamp': DateTime.now(), // Use local time for initial message
     };
     setState(() {
       _messages.add(initialMessage);
     });
-    if (_userId.isNotEmpty) {
-      await _firestore
-          .collection('user')
-          .doc(_userId)
-          .collection('chatHistory')
-          .add(initialMessage);
+    if (_userId.isNotEmpty && !_isGuest) {
+      try {
+        await _firebaseService.addChatMessage(_userId, initialMessage);
+      } catch (e) {
+        print("Error saving initial bot message to Firebase: $e");
+      }
     }
   }
 
+  Future<void> _addInitialBotMessageToHive() async {
+    final initialMessage = {
+      "text": "Hello, I’m PositiveBot! 👋 I’m your personal virtual encourager. How may I encourage you?",
+      "isBot": true,
+      'timestamp': DateTime.now(), 
+    };
+    setState(() {
+      _messages.add(initialMessage);
+    });
+    if (_userId.isNotEmpty && _isGuest) {
+      try {
+        await _hiveService.addChatMessage(_userId, initialMessage);
+      } catch (e) {
+        print("Error saving initial bot message to Hive: $e");
+      }
+    }
+  }
 
   Future<void> _loadMessages() async {
     if (_userId.isNotEmpty) {
       try {
-        final QuerySnapshot messagesQuery = await _firestore
-            .collection('user')
-            .doc(_userId)
-            .collection('chatHistory')
-            .orderBy('timestamp') 
-            .get();
-
+        List<Map<String, dynamic>> loadedMessages;
+        if (!_isGuest) {
+          loadedMessages = await _firebaseService.getChatMessages(_userId);
+        } else {
+          loadedMessages = await _hiveService.getChatMessages(_userId);
+        }
         setState(() {
-          _messages = messagesQuery.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+          _messages = loadedMessages;
         });
       } catch (e) {
-        print('Error loading messages: $e');
+        print('Error loading messages in UI: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading chat history')),
+        );
       }
     }
   }
 
   Future<void> _loadPersonalityData() async {
-  if (_userId.isNotEmpty) {
-    try {
-      final QuerySnapshot personalityQuery = await _firestore
-          .collection('personalityTest')
-          .where('userId', isEqualTo: _userId) 
-          .get();
-
-      if (personalityQuery.docs.isNotEmpty) {
+    if (_userId.isNotEmpty && !_isGuest) {
+      try {
+        final personalityData = await _firebaseService.getPersonalityData(_userId);
         setState(() {
-          _personalityData = personalityQuery.docs.first.data() as Map<String, dynamic>;
+          _personalityData = personalityData;
         });
-      } else {
-        print("No personality document found for this user.");
+      } catch (e) {
+        print('Error loading personality data in UI: $e');
       }
-    } catch (e) {
-      print('Error loading personality data: $e');
+    } else if (_userId.isNotEmpty && _isGuest) {
+      final personalityData = _hiveService.getPersonalityTestResults(_userId);
+      setState(() {
+        _personalityData = personalityData;
+      });
     }
   }
-}
 
   void _sendMessage(String text) async {
     if (_userId.isEmpty) return;
 
-    final userMessage = {"text": text, "isBot": false, 'timestamp': FieldValue.serverTimestamp()};
+    final userMessage = {"text": text, "isBot": false, 'timestamp': DateTime.now()};
 
     String personalityString = "";
     if (_personalityData != null) {
-        personalityString = "Extraversion: ${_personalityData!['Extraversion']}, Agreeableness: ${_personalityData!['Agreeableness']}, Emotional Stability: ${_personalityData!['Emotional Stability']}, Conscientiousness: ${_personalityData!['Conscientiousness']}, Openness to Experience: ${_personalityData!['Openness to Experience']}";
+      personalityString = "Extraversion: ${_personalityData!['Extraversion']}, Agreeableness: ${_personalityData!['Agreeableness']}, Emotional Stability: ${_personalityData!['Emotional Stability']}, Conscientiousness: ${_personalityData!['Conscientiousness']}, Openness to Experience: ${_personalityData!['Openness to Experience']}";
     }
     print(personalityString);
 
@@ -125,29 +148,28 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      await _firestore
-          .collection('user')
-          .doc(_userId)
-          .collection('chatHistory')
-          .add(userMessage);
-
-      
-      String response = await _geminiService.sendMessage(_userId, _messages, personalityString);
-
-      final botMessage = {"text": response, "isBot": true, 'timestamp': FieldValue.serverTimestamp()};
-
-      setState(() {
-        _messages.add(botMessage);
-      });
-
-      await _firestore
-          .collection('user')
-          .doc(_userId)
-          .collection('chatHistory')
-          .add(botMessage);
-        _loadMessages();
+      if (!_isGuest) {
+        await _firebaseService.addChatMessage(_userId, userMessage);
+        String response = await _geminiService.sendMessage(_userId, _messages, personalityString);
+        final botMessage = {"text": response, "isBot": true, 'timestamp': DateTime.now()};
+        setState(() {
+          _messages.add(botMessage);
+        });
+        await _firebaseService.addChatMessage(_userId, botMessage);
+      } else {
+        await _hiveService.addChatMessage(_userId, userMessage);
+        String response = await _geminiService.sendMessage(_userId, _messages, personalityString);
+        final botMessage = {"text": response, "isBot": true, 'timestamp': DateTime.now()};
+        setState(() {
+          _messages.add(botMessage);
+        });
+        await _hiveService.addChatMessage(_userId, botMessage);
+      }
     } catch (e) {
       print("Error sending/saving message: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sending message')),
+      );
     } finally {
       setState(() {
         _isLoading = false;
@@ -217,7 +239,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: CircularProgressIndicator(color: Colors.blue),
               ),
             ),
-            if (!_isLoading && _messages.isNotEmpty && _messages.last['isBot'] == true)
+          if (!_isLoading && _messages.isNotEmpty && _messages.last['isBot'] == true)
             Padding(
               padding: const EdgeInsets.all(10),
               child: SingleChildScrollView(

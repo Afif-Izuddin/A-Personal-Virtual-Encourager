@@ -1,29 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'firebaseService.dart'; 
+import 'hive_service.dart'; 
 
 class PreferencesScreen extends StatefulWidget {
-  
   @override
   _PreferencesScreenState createState() => _PreferencesScreenState();
 }
 
 class _PreferencesScreenState extends State<PreferencesScreen> {
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+  final FirebaseService _firebaseService = FirebaseService(); 
+  final HiveService _hiveService = HiveService(); 
   List<String> _userPreferences = [];
   bool _isLoading = true;
-
-  String _userId = " ";
-
-  Future<void> loadUserID() async {
-  final prefs = await SharedPreferences.getInstance();
-  setState(() {
-    _userId = prefs.getString('uid') ?? "assets/background1.jpg"; 
-  });
-  _fetchUserPreferences();
-  }
-
-
+  String _userId = "";
+  bool _isGuest = false;
 
   final List<String> allPreferences = [
     "Life",
@@ -46,63 +36,111 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     "Time Management",
     "Overcoming Obstacles",
     "Gratitude"
-];
+  ];
 
   @override
   void initState() {
     super.initState();
-    loadUserID();
-    
+    _loadPreferencesData();
   }
 
-  Future<void> _fetchUserPreferences() async {
-    try {
-      DocumentSnapshot userDoc =
-          await firestore.collection('user').doc(_userId).get();
-
-      if (userDoc.exists) {
-        Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-        setState(() {
-          _userPreferences = List<String>.from(userData['preference'] ?? []);
-          _isLoading = false;
-        });
+  Future<void> _loadPreferencesData() async {
+    await _loadUserStatus();
+    if (_userId.isNotEmpty) {
+      if (!_isGuest) {
+        await _fetchUserPreferencesFromFirebase();
       } else {
-        setState(() {
-          _isLoading = false;
-        });
+        await _fetchUserPreferencesFromHive();
       }
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadUserStatus() async {
+    final userId = await _firebaseService.getCurrentUserId();
+    final isGuestStatus = await _firebaseService.getGuestStatus();
+    setState(() {
+      _userId = userId ?? "";
+      _isGuest = isGuestStatus;
+    });
+  }
+
+  Future<void> _fetchUserPreferencesFromFirebase() async {
+    try {
+      final preferences = await _firebaseService.getUserPreferenceList(_userId);
+      setState(() {
+        _userPreferences = preferences;
+        _isLoading = false;
+      });
     } catch (e) {
-      print("Error fetching preferences: $e");
-       setState(() {
-          _isLoading = false;
-        });
+      print("Error fetching preferences from Firebase in UI: $e");
+      _handleFetchError();
+    }
+  }
+
+  Future<void> _fetchUserPreferencesFromHive() async {
+    try {
+      final preferences = await _hiveService.getUserPreferences(_userId);
+      setState(() {
+        _userPreferences = preferences ?? [];
+        _isLoading = false;
+      });
+    } catch (e) {
+      print("Error fetching preferences from Hive in UI: $e");
+      _handleFetchError();
+    }
+  }
+
+  void _handleFetchError() {
+    setState(() {
+      _isLoading = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error fetching preferences')),
+    );
+  }
+
+  Future<void> _updateUserPreferences(String preference) async {
+    List<String> updatedPreferences = List.from(_userPreferences);
+
+    if (updatedPreferences.contains(preference)) {
+      updatedPreferences.remove(preference);
+    } else {
+      updatedPreferences.add(preference);
+    }
+
+    if (!_isGuest) {
+      await _updateUserPreferencesInFirebase(updatedPreferences);
+    } else {
+      await _updateUserPreferencesInHive(updatedPreferences);
+    }
+
+    setState(() {
+      _userPreferences = updatedPreferences;
+    });
+  }
+
+  Future<void> _updateUserPreferencesInFirebase(List<String> preferences) async {
+    try {
+      await _firebaseService.updateUserPreferences(_userId, preferences);
+    } catch (e) {
+      print("Error updating preferences in Firebase UI: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error fetching preferences')),
+        SnackBar(content: Text('Error updating preferences online')),
       );
     }
   }
 
-  Future<void> _updateUserPreferences(String preference) async {
+  Future<void> _updateUserPreferencesInHive(List<String> preferences) async {
     try {
-      List<String> updatedPreferences = List.from(_userPreferences);
-
-      if (updatedPreferences.contains(preference)) {
-        updatedPreferences.remove(preference);
-      } else {
-        updatedPreferences.add(preference);
-      }
-
-      await firestore.collection('user').doc(_userId).update({
-        'preference': updatedPreferences,
-      });
-
-      setState(() {
-        _userPreferences = updatedPreferences;
-      });
+      await _hiveService.saveUserPreferences(_userId, preferences);
     } catch (e) {
-      print("Error updating preferences: $e");
+      print("Error updating preferences in Hive UI: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating preferences')),
+        SnackBar(content: Text('Error updating preferences locally')),
       );
     }
   }
@@ -112,15 +150,15 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white, 
-        iconTheme: IconThemeData(color: Colors.black), 
+        backgroundColor: Colors.white,
+        iconTheme: IconThemeData(color: Colors.black),
         title: Text("Preferences", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: true,
         leading: IconButton(
           icon: Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
-        elevation: 0, 
+        elevation: 0,
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
@@ -136,10 +174,10 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                     ),
                     child: ListTile(
                       onTap: () => _updateUserPreferences(preference),
-                      title: Text(preference, style: TextStyle(color: Colors.black)), 
+                      title: Text(preference, style: TextStyle(color: Colors.black)),
                       trailing: isSelected
                           ? Icon(Icons.check_circle, color: Colors.green)
-                          : Icon(Icons.circle_outlined, color: Colors.black), 
+                          : Icon(Icons.circle_outlined, color: Colors.black),
                     ),
                   );
                 }).toList(),

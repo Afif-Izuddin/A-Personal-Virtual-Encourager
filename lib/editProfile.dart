@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart'; 
+import 'firebaseService.dart';
+import 'hive_service.dart';
 
 class EditProfileScreen extends StatefulWidget {
   @override
@@ -9,58 +10,84 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _usernameController;
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+  late TextEditingController _dobController;
+  String? _selectedBelief;
+  String? _selectedGender;
+  final FirebaseService _firebaseService = FirebaseService();
+  final HiveService _hiveService = HiveService();
   bool _isLoading = true;
   String _currentUsername = '';
+  String _currentDob = '';
+  String? _currentBelief;
+  String? _currentGender;
   String _userId = "";
+  bool _isGuest = false;
 
-  Future<void> loadUserID() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _userId = prefs.getString('uid') ?? ""; 
-    });
-    print(_userId);
-    _fetchUserData(); 
-  }
+  final List<String> _commonBeliefs = [
+    'Agnostic',
+    'Atheist',
+    'Buddhist',
+    'Christian',
+    'Hindu',
+    'Jewish',
+    'Muslim',
+    'Spiritual but not religious',
+    'Other',
+    'Prefer not to say',
+  ];
 
   @override
   void initState() {
     super.initState();
     _usernameController = TextEditingController(text: '');
-    loadUserID(); 
+    _dobController = TextEditingController(text: '');
+    _loadProfileData();
   }
 
-  Future<void> _fetchUserData() async {
-    if (_userId.isEmpty) {
+  Future<void> _loadProfileData() async {
+    await _loadUserId();
+    if (_userId.isNotEmpty) {
+      _isGuest = await _firebaseService.getGuestStatus();
+      if (!_isGuest) {
+        await _fetchFirebaseUserData();
+      } else {
+        await _fetchHiveUserData();
+      }
+    } else {
       setState(() {
         _isLoading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('User ID not found')),
       );
-      return;
     }
+  }
+
+  Future<void> _loadUserId() async {
+    final userId = await _firebaseService.getCurrentUserId();
+    setState(() {
+      _userId = userId ?? "";
+    });
+    print(_userId);
+  }
+
+  Future<void> _fetchFirebaseUserData() async {
+    if (_userId.isEmpty) return;
     try {
-      DocumentSnapshot userDoc =
-          await firestore.collection('user').doc(_userId).get();
-      if (userDoc.exists) {
-        Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-        setState(() {
-          _currentUsername = userData['username'] ?? '';
-          _usernameController.text = _currentUsername; 
-          _isLoading = false;
-        });
-      } else {
-        print("User document does not exist!");
-        setState(() {
-          _isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('User data not found')),
-        );
-      }
+      final userData = await _firebaseService.getUserProfile(_userId);
+      setState(() {
+        _currentUsername = userData['username'] ?? '';
+        _currentDob = userData['dob'] ?? '';
+        _currentBelief = userData['belief'];
+        _currentGender = userData['gender'];
+        _usernameController.text = _currentUsername;
+        _dobController.text = _currentDob;
+        _selectedBelief = _currentBelief;
+        _selectedGender = _currentGender;
+        _isLoading = false;
+      });
     } catch (e) {
-      print("Error fetching user data: $e");
+      print("Error fetching user data from Firebase: $e");
       setState(() {
         _isLoading = false;
       });
@@ -70,24 +97,72 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  Future<void> _fetchHiveUserData() async {
+    final profileData = _hiveService.getUserProfile(_userId);
+    setState(() {
+      _currentUsername = profileData?['username'] ?? '';
+      _currentDob = profileData?['dob'] ?? '';
+      _currentBelief = profileData?['belief'];
+      _currentGender = profileData?['gender'];
+      _usernameController.text = _currentUsername;
+      _dobController.text = _currentDob;
+      _selectedBelief = _currentBelief;
+      _selectedGender = _currentGender;
+      _isLoading = false;
+    });
+  }
+
   @override
   void dispose() {
     _usernameController.dispose();
+    _dobController.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _currentDob.isNotEmpty ? DateTime.parse(_currentDob) : DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() {
+        _dobController.text = DateFormat('yyyy-MM-dd').format(picked);
+      });
+    }
   }
 
   Future<void> _updateProfile() async {
     setState(() {
       _isLoading = true;
     });
+    final profileData = {
+      'username': _usernameController.text,
+      'gender': _selectedGender,
+      'dob': _dobController.text,
+      'belief': _selectedBelief,
+    };
     try {
-      await firestore.collection('user').doc(_userId).update({
-        'username': _usernameController.text,
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Profile updated successfully!')),
-      );
-      Navigator.pop(context);
+      if (!_isGuest) {
+        await _firebaseService.updateUserProfile(
+          _userId,
+          _usernameController.text,
+          _selectedGender,
+          _dobController.text,
+          _selectedBelief,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Profile updated successfully!')),
+        );
+        Navigator.pop(context);
+      } else {
+        await _hiveService.saveUserProfile(_userId, profileData);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Profile updated locally (Guest)!')),
+        );
+        Navigator.pop(context);
+      }
     } catch (e) {
       print("Error updating profile: $e");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -111,31 +186,86 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         padding: const EdgeInsets.all(24.0),
         child: _isLoading
             ? Center(child: CircularProgressIndicator())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(height: 32),
-                  TextFormField(
-                    controller: _usernameController,
-                    decoration: InputDecoration(
-                      labelText: 'Username',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  SizedBox(height: 32),
-                  ElevatedButton(
-                    onPressed: _updateProfile,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+            : SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(height: 32),
+                    TextFormField(
+                      controller: _usernameController,
+                      decoration: InputDecoration(
+                        labelText: 'Username',
+                        border: OutlineInputBorder(),
                       ),
                     ),
-                    child: Text('Update', style: TextStyle(fontSize: 16)),
-                  ),
-                ],
+                    SizedBox(height: 16),
+                    InkWell(
+                      onTap: () => _selectDate(context),
+                      child: IgnorePointer(
+                        child: TextFormField(
+                          controller: _dobController,
+                          decoration: InputDecoration(
+                            labelText: 'Date of Birth',
+                            border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.calendar_today),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        labelText: 'Gender',
+                        border: OutlineInputBorder(),
+                      ),
+                      value: _selectedGender,
+                      items: <String>['Male', 'Female', 'Other', 'Prefer not to say']
+                          .map((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                      onChanged: (String? newValue) {
+                        setState(() {
+                          _selectedGender = newValue;
+                        });
+                      },
+                    ),
+                    SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        labelText: 'Beliefs',
+                        border: OutlineInputBorder(),
+                      ),
+                      value: _selectedBelief,
+                      items: _commonBeliefs.map((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                      onChanged: (String? newValue) {
+                        setState(() {
+                          _selectedBelief = newValue;
+                        });
+                      },
+                    ),
+                    SizedBox(height: 32),
+                    ElevatedButton(
+                      onPressed: _updateProfile,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Text('Update', style: TextStyle(fontSize: 16)),
+                    ),
+                  ],
+                ),
               ),
       ),
     );

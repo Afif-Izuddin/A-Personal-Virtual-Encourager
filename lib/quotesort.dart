@@ -1,5 +1,7 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'hive_service.dart'; 
+import 'firebaseService.dart'; 
 
 Future<List<Map<String, dynamic>>> getSkewedQuotes(String userId, List<String> userPreferences, List<String> userTraits) async {
   try {
@@ -30,7 +32,7 @@ Future<List<Map<String, dynamic>>> getSkewedQuotes(String userId, List<String> u
         }
       }
 
-      scoreA += Random().nextInt(3); 
+      scoreA += Random().nextInt(3);
       scoreB += Random().nextInt(3);
 
       return scoreB.compareTo(scoreA);
@@ -44,35 +46,125 @@ Future<List<Map<String, dynamic>>> getSkewedQuotes(String userId, List<String> u
 }
 
 Future<List<String>> getTopTraits(String userId) async {
-  try {
-    final personalityTestQuery = await FirebaseFirestore.instance
-        .collection('personalityTest')
-        .where('userID', isEqualTo: userId)
-        .limit(1)
-        .get();
+  final FirebaseService _firebaseService = FirebaseService();
 
-    if (personalityTestQuery.docs.isEmpty) {
-      return []; 
-    }
+  final isGuest = await _firebaseService.getGuestStatus();
 
-    final personalityData = personalityTestQuery.docs.first.data() as Map<String, dynamic>;
+  if (!isGuest) {
+    try {
+      final personalityTestQuery = await FirebaseFirestore.instance
+          .collection('personalityTest')
+          .where('userID', isEqualTo: userId)
+          .limit(1)
+          .get();
 
-    List<MapEntry<String, dynamic>> entries = personalityData.entries.toList();
-
-    entries.sort((a, b) => (b.value as num).compareTo(a.value as num));
-
-    List<String> topTraits = [];
-    int count = 0;
-    for (var entry in entries) {
-      if (entry.key != 'userID' && entry.key != 'user') { 
-        topTraits.add(entry.key);
-        count++;
-        if (count == 3) break; 
+      if (personalityTestQuery.docs.isEmpty) {
+        return [];
       }
+
+      final personalityData = personalityTestQuery.docs.first.data() as Map<String, dynamic>;
+
+      List<MapEntry<String, dynamic>> entries = personalityData.entries.toList();
+      entries.sort((a, b) {
+        final valueA = a.value;
+        final valueB = b.value;
+
+        num? numA;
+        num? numB;
+
+        if (valueA is String) {
+          numA = num.tryParse(valueA);
+        } else if (valueA is num) {
+          numA = valueA;
+        }
+
+        if (valueB is String) {
+          numB = num.tryParse(valueB);
+        } else if (valueB is num) {
+          numB = valueB;
+        }
+
+        if (numB != null && numA != null) {
+          return numB.compareTo(numA);
+        } else {
+          return 0; 
+        }
+      });
+
+      List<String> topTraits = [];
+      int count = 0;
+      for (var entry in entries) {
+        if (entry.key != 'userID') {
+          topTraits.add(entry.key as String);
+          count++;
+          if (count == 3) break;
+        }
+      }
+      return topTraits;
+    } catch (e) {
+      print("Error getting top traits from Firebase: $e");
+      return [];
     }
-    return topTraits;
-  } catch (e) {
-    print("Error getting top traits: $e");
-    return [];
+  } else {
+    try {
+      final personalityBox = HiveService.getPersonalityTestResultsBox();
+      final guestData = personalityBox.get(userId);
+
+      if (guestData == null || guestData.isEmpty) {
+        return [];
+      }
+
+      if (guestData is Map) {
+        List<MapEntry<dynamic, dynamic>> entries = guestData.entries.toList();
+        entries.sort((a, b) {
+          final valueA = a.value;
+          final valueB = b.value;
+
+          num? numA;
+          num? numB;
+
+          if (valueA is String) {
+            numA = num.tryParse(valueA);
+          } else if (valueA is num) {
+            numA = valueA;
+          }
+
+          if (valueB is String) {
+            numB = num.tryParse(valueB);
+          } else if (valueB is num) {
+            numB = valueB;
+          }
+
+          if (numB != null && numA != null) {
+            return numB.compareTo(numA);
+          } else {
+            return 0; 
+          }
+        });
+
+        List<String> topTraits = [];
+        int count = 0;
+        for (var entry in entries) {
+          if (entry.key != 'userID' && entry.key is String) {
+            topTraits.add(entry.key as String);
+            count++;
+            if (count == 3) break;
+          }
+        }
+        return topTraits;
+      }
+
+       else {
+        print("Error: Guest personality data in Hive is not a Map.");
+        return [];
+      }
+    } catch (e) {
+      print("Error getting top traits from Hive: $e");
+      return [];
+    }
   }
+
+  
 }
+
+

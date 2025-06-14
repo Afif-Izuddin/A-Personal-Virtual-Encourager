@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:fyp_a_personal_virtual_encourager_test_1/homeWidgetConfig.dart';
+import 'package:fyp_a_personal_virtual_encourager_test_1/reminderListPage.dart';
 import 'changeBackground.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -41,6 +43,10 @@ class SettingsScreen extends StatelessWidget {
       onTap: () {
         if (title == "Background") {
           Navigator.push(context, MaterialPageRoute(builder: (context) => BackgroundScreen()));
+        } else if (title == "Reminder") {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => ReminderListPage()));
+        } else if (title == "Widgets") {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => HomeWidgetConfigScreen()));
         }
       },
       child: Container(
@@ -95,6 +101,10 @@ class SettingsScreen extends StatelessWidget {
               onPressed: () {
                 if (title == "Background") {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => BackgroundScreen()));
+                } else if (title == "Reminder") {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => ReminderListPage()));
+                } else if (title == "Widgets") {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => HomeWidgetConfigScreen()));
                 }
               },
             ),

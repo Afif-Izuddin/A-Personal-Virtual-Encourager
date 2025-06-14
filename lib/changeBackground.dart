@@ -9,11 +9,14 @@ class BackgroundScreen extends StatefulWidget {
 
 class _BackgroundScreenState extends State<BackgroundScreen> {
   String? _selectedBackground;
+  Color _selectedFontColor = Colors.black;
+  double _selectedFontSize = 20.0;
 
   @override
   void initState() {
     super.initState();
     _loadSelectedBackground();
+    _loadFontPreferences();
   }
 
   Future<void> _loadSelectedBackground() async {
@@ -28,6 +31,31 @@ class _BackgroundScreenState extends State<BackgroundScreen> {
     await prefs.setString('selectedBackground', background);
     setState(() {
       _selectedBackground = background;
+    });
+  }
+
+  Future<void> _loadFontPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _selectedFontColor = Color(prefs.getInt('fontColor') ?? Colors.black.value);
+      _selectedFontSize = prefs.getDouble('fontSize') ?? 20.0;
+    });
+  }
+
+  Future<void> _saveFontColor(Color color) async {
+    final prefs = await SharedPreferences.getInstance();
+    print("Saving font color: $color");
+    await prefs.setInt('fontColor', color.value);
+    setState(() {
+      _selectedFontColor = color;
+    });
+  }
+
+  Future<void> _saveFontSize(double size) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('fontSize', size);
+    setState(() {
+      _selectedFontSize = size;
     });
   }
 
@@ -47,12 +75,12 @@ class _BackgroundScreenState extends State<BackgroundScreen> {
         child: Column(
           children: [
             Expanded(
-              child: GridView.builder( 
+              child: GridView.builder(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   mainAxisSpacing: 16,
                   crossAxisSpacing: 16,
-                  childAspectRatio: 9 / 16, 
+                  childAspectRatio: 9 / 16,
                 ),
                 itemCount: 3,
                 itemBuilder: (context, index) {
@@ -67,21 +95,76 @@ class _BackgroundScreenState extends State<BackgroundScreen> {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 20),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => QuoteScreen()));
-                  },
-                  style: ElevatedButton.styleFrom(
-                    foregroundColor: Colors.white, backgroundColor: Colors.black,
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+              child: Column(
+                children: [
+                  Text("Font Settings", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Color:", style: TextStyle(fontSize: 16)),
+                      DropdownButton<Color>(
+                        value: _selectedFontColor,
+                        items: [
+                          Colors.black,
+                          Colors.white,
+                          Colors.blue,
+                          Colors.red,
+                          Colors.green,
+                        ].map((Color color) {
+                          return DropdownMenuItem<Color>(
+                            value: color,
+                            child: Container(
+                              width: 30,
+                              height: 30,
+                              color: color,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (Color? newValue) {
+                          if (newValue != null) {
+                            _saveFontColor(newValue);
+                          }
+                        },
+                      ),
+                    ],
                   ),
-                  child: Text('Done', style: TextStyle(fontSize: 16)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Size:", style: TextStyle(fontSize: 16)),
+                      Expanded(
+                        child: Slider(
+                          value: _selectedFontSize,
+                          min: 12.0,
+                          max: 30.0,
+                          divisions: 18,
+                          label: _selectedFontSize.round().toString(),
+                          onChanged: (double newValue) {
+                            _saveFontSize(newValue);
+                          },
+                        ),
+                      ),
+                      Text(_selectedFontSize.round().toString(), style: TextStyle(fontSize: 16)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => QuoteScreen()));
+                },
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white, backgroundColor: Colors.black,
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
+                child: Text('Done', style: TextStyle(fontSize: 16)),
               ),
             ),
           ],

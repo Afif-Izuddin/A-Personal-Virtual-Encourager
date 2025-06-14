@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'firebaseService.dart'; 
+import 'hive_service.dart'; 
+import 'normalTipiResultScreen.dart';
 
 class PersonalityTestScreen extends StatefulWidget {
   @override
@@ -11,6 +12,10 @@ class _PersonalityTestScreenState extends State<PersonalityTestScreen> {
   int _currentQuestionIndex = 0;
   List<int?> _answers = List.filled(10, null);
   bool _hasAnswered = false;
+  String _userId = "";
+  bool _isGuest = false;
+  final FirebaseService _firebaseService = FirebaseService(); 
+  final HiveService _hiveService = HiveService(); 
 
   final List<String> _questions = [
     "I see myself as extraverted, enthusiastic.",
@@ -25,24 +30,20 @@ class _PersonalityTestScreenState extends State<PersonalityTestScreen> {
     "I see myself as conventional, uncreative.",
   ];
 
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
-  String _userId = " ";
-
-  
-
-   @override
+  @override
   void initState() {
-    super.initState;
-    loadUserID();
+    super.initState();
+    _loadUserIdAndGuestStatus();
   }
 
-  Future<void> loadUserID() async {
-  final prefs = await SharedPreferences.getInstance();
-  print("runs");
-  setState(() {
-    _userId = prefs.getString('uid') ?? "assets/background1.jpg"; 
-  });
-  print(_userId);
+  Future<void> _loadUserIdAndGuestStatus() async {
+    final userId = await _firebaseService.getCurrentUserId();
+    final isGuestStatus = await _firebaseService.getGuestStatus();
+    setState(() {
+      _userId = userId ?? "";
+      _isGuest = isGuestStatus;
+    });
+    print('User ID: $_userId, Is Guest: $_isGuest');
   }
 
   void _answerQuestion(int value) {
@@ -67,7 +68,7 @@ class _PersonalityTestScreenState extends State<PersonalityTestScreen> {
     });
   }
 
-  void _handleSubmit(List<int?> answers) {
+  void _handleSubmit(List<int?> answers) async {
     if (answers.contains(null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Please answer all questions')),
@@ -84,7 +85,7 @@ class _PersonalityTestScreenState extends State<PersonalityTestScreen> {
     double openness = (nonNullAnswers[4] + (8 - nonNullAnswers[9])) / 2;
 
     Map<String, dynamic> personalityScores = {
-      'userID' : _userId,
+      'userID': _userId,
       'Extraversion': extraversion,
       'Agreeableness': agreeableness,
       'Conscientiousness': conscientiousness,
@@ -92,32 +93,37 @@ class _PersonalityTestScreenState extends State<PersonalityTestScreen> {
       'Openness to Experience': openness,
     };
 
-    _sendAnswersToFirestore(personalityScores);
+    if (!_isGuest) {
+      _sendAnswersToFirestore(personalityScores);
+    } else {
+      _saveAnswersToHive(personalityScores);
+    }
 
-    Navigator.pop(context);
+   Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (context) => NormalTipiResultsScreen()),
+    );
   }
 
   Future<void> _sendAnswersToFirestore(Map<String, dynamic> data) async {
-    final personalityTestCollection = firestore.collection('personalityTest');
-
     try {
-      final querySnapshot =
-          await personalityTestCollection.where('userID', isEqualTo: _userId).get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        // Update existing document
-        final docId = querySnapshot.docs.first.id;
-        await personalityTestCollection.doc(docId).update(data);
-        print('Personality scores updated in Firestore!');
-      } else {
-        // Create new document
-        await personalityTestCollection.add(data);
-        print('Personality scores added to Firestore!');
-      }
+      await _firebaseService.savePersonalityScores(_userId, data);
     } catch (e) {
-      print('Error sending personality scores to Firestore: $e');
+      print('Error sending personality scores in UI: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error saving personality scores')),
+      );
+    }
+  }
+
+  Future<void> _saveAnswersToHive(Map<String, dynamic> data) async {
+    try {
+      await _hiveService.savePersonalityTestResults(_userId, data);
+      print('Personality scores saved to Hive for guest user: $_userId');
+    } catch (e) {
+      print('Error saving personality scores to Hive: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving personality scores locally')),
       );
     }
   }
@@ -159,44 +165,35 @@ class _PersonalityTestScreenState extends State<PersonalityTestScreen> {
             ),
             SizedBox(height: 20),
             Column(
-              children: List.generate(7, (index) {
-                return GestureDetector(
-                  onTap: () => _answerQuestion(index + 1),
-                  child: Container(
-                    margin: EdgeInsets.symmetric(vertical: 4),
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: _answers[_currentQuestionIndex] == index + 1
-                          ? Colors.blue[100]
-                          : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
+              children: [
+                Text("Strongly Disagree", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                ...List.generate(7, (index) {
+                  return GestureDetector(
+                    onTap: () => _answerQuestion(index + 1),
+                    child: Container(
+                      margin: EdgeInsets.symmetric(vertical: 4),
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
                         color: _answers[_currentQuestionIndex] == index + 1
-                            ? Colors.blue
-                            : Colors.transparent,
-                        width: 2,
+                            ? Colors.blue[100]
+                            : Colors.grey[200],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _answers[_currentQuestionIndex] == index + 1
+                              ? Colors.blue
+                              : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text((index + 1).toString(),
+                            style: TextStyle(color: Colors.black)),
                       ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (index == 0)
-                          Text("Disagree Strongly ",
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                        Expanded(
-                          child: Center(
-                            child: Text((index + 1).toString(),
-                                style: TextStyle(color: Colors.black)),
-                          ),
-                        ),
-                        if (index == 6)
-                          Text(" Agree Strongly",
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                      ],
-                    ),
-                  ),
-                );
-              }),
+                  );
+                }),
+                Text("Strongly Agree", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              ],
             ),
             Spacer(),
             ElevatedButton(
