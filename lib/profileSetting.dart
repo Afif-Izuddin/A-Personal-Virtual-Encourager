@@ -94,7 +94,7 @@ class _ProfilesettingScreenState extends State<ProfilesettingScreen> {
         title: Text("Profile", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
-      body: SingleChildScrollView( // <--- WRAP WITH SingleChildScrollView
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(15),
         child: Column(
           children: [
@@ -114,6 +114,24 @@ class _ProfilesettingScreenState extends State<ProfilesettingScreen> {
   }
 
   Widget _buildSettingsItem(String title, String subtitle, BuildContext context) {
+    IconData iconData;
+    switch (title) {
+      case "Edit Profile":
+        iconData = Icons.person_outline; // Changed icon
+        break;
+      case "Retake TIPI Test":
+        iconData = Icons.psychology_outlined; // Changed icon
+        break;
+      case "Preferences":
+        iconData = Icons.settings_outlined; // Changed icon
+        break;
+      case "Saved":
+        iconData = Icons.bookmark_border_outlined; // Changed icon
+        break;
+      default:
+        iconData = Icons.category_outlined; // Fallback icon
+    }
+
     return GestureDetector(
       onTap: () {
         if (title == "Saved") {
@@ -153,6 +171,11 @@ class _ProfilesettingScreenState extends State<ProfilesettingScreen> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
+              ),
+              child: Icon( // ADDED: Icon widget here
+                iconData,
+                color: Colors.white, // Icon color
+                size: 24, // Icon size
               ),
             ),
             SizedBox(width: 15),

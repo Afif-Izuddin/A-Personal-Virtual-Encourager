@@ -36,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => QuoteScreen()),
-            );
+            );  
           } else {
             Navigator.pushReplacement(
               context,
@@ -169,8 +169,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     String errorMessage;
                     if (e.code == 'user-not-found') {
                       errorMessage = 'No user found for that email.';
-                    } else if (e.code == 'wrong-password') {
-                      errorMessage = 'Wrong password provided for that user.';
+                    } else if (e.code == 'invalid-credential') {
+                      errorMessage = 'Wrong password or email';
                     } else if (e.code == 'invalid-email') {
                       errorMessage = 'Invalid email format.';
                     } else if (e.code == 'too-many-requests') {

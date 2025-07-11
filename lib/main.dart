@@ -192,6 +192,8 @@ class _QuoteScreenState extends State<QuoteScreen> {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginScreen()));
       return;
     }
+    
+    final Stopwatch stopwatch = Stopwatch()..start();
 
     try {
       if(!_isGuest){
@@ -207,6 +209,9 @@ class _QuoteScreenState extends State<QuoteScreen> {
     } catch (e) {
       print("Error fetching quotes: $e");
       
+    } finally {
+      stopwatch.stop();
+      print('Daily Quote Load Time: ${stopwatch.elapsedMilliseconds} ms');
     }
   }
 

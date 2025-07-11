@@ -10,16 +10,12 @@ import 'package:fyp_a_personal_virtual_encourager_test_1/hive_service.dart';    
 @GenerateMocks([
   FirebaseService,
   HiveService,
-  SharedPreferences,
-  FirebaseAuth, // Mock FirebaseAuth for internal calls in FirebaseService
-  UserCredential, // To simulate successful login result
-  User, // To simulate a logged-in user
-  Box, // To mock Hive box operations
+  FirebaseAuth, // This remains here as it's not given a custom 'MockFirebaseAuth' alias
+  // REMOVED Box from here (now only in customMocks)
 ], customMocks: [
-  // REMOVE 'returnNullOnMissingStub: true' from all MockSpec lines
   MockSpec<SharedPreferences>(as: #MockSharedPreferences),
   MockSpec<UserCredential>(as: #MockUserCredential),
   MockSpec<User>(as: #MockUser),
-  MockSpec<Box>(as: #MockBox),
+  MockSpec<Box>(as: #MockBox), // Keep this here
 ])
 void main() {} // Empty main for build_runner

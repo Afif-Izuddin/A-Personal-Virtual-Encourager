@@ -39,6 +39,23 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Widget _buildSettingsItem(String title, String subtitle, BuildContext context) {
+    IconData iconData; // Declare IconData variable
+
+    // Determine the icon based on the title
+    switch (title) {
+      case "Background":
+        iconData = Icons.wallpaper_outlined; // Specific icon for Background
+        break;
+      case "Reminder":
+        iconData = Icons.notifications_none_outlined; // Specific icon for Reminder
+        break;
+      case "Widgets":
+        iconData = Icons.widgets_outlined; // Specific icon for Widgets
+        break;
+      default:
+        iconData = Icons.settings_outlined; // Fallback icon for any other case
+    }
+
     return GestureDetector(
       onTap: () {
         if (title == "Background") {
@@ -67,16 +84,17 @@ class SettingsScreen extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 50, 
+              width: 50,
               height: 50,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                color: Colors.lightBlueAccent, 
+                color: Colors.lightBlueAccent,
               ),
+              // Changed: Use the determined iconData here
               child: Icon(
-                Icons.image_outlined, 
+                iconData, // This will now be wallpaper, notifications, or widgets
                 color: Colors.white,
-                size: 24, 
+                size: 24,
               ),
             ),
             SizedBox(width: 15),
@@ -97,7 +115,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
             IconButton(
-              icon: Icon(Icons.arrow_forward_ios, color: Colors.black), 
+              icon: Icon(Icons.arrow_forward_ios, color: Colors.black),
               onPressed: () {
                 if (title == "Background") {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => BackgroundScreen()));

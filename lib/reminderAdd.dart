@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'geminiService.dart';
 import 'package:timezone/timezone.dart' as tz;
-import 'package:timezone/data/latest.dart' as tz;
 import 'hive_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'firebaseService.dart';
@@ -25,9 +24,6 @@ class _ReminderAddScreenState extends State<ReminderAddScreen> {
   @override
   void initState() {
     super.initState();
-    //_initializeNotifications();
-    //tz.initializeTimeZones();
-    //tz.setLocalLocation(tz.getLocation('Asia/Kuala_Lumpur'));
     _requestExactAlarmPermission();
   }
 
@@ -150,6 +146,7 @@ class _ReminderAddScreenState extends State<ReminderAddScreen> {
       );
     });
   }
+  
 
   Future<void> scheduleReminder({
   required int id,
@@ -161,6 +158,7 @@ class _ReminderAddScreenState extends State<ReminderAddScreen> {
     scheduledDateTime, 
     tz.local,
   );
+  
   print('Scheduling notification:');
     print('  ID: $id');
     print('  Title: $title');

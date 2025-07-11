@@ -108,9 +108,9 @@ class _BackgroundScreenState extends State<BackgroundScreen> {
                         items: [
                           Colors.black,
                           Colors.white,
-                          Colors.blue,
-                          Colors.red,
-                          Colors.green,
+                          Color(0xff2196f3),
+                          Color(0xfff44336),
+                          Color(0xff4caf50),
                         ].map((Color color) {
                           return DropdownMenuItem<Color>(
                             value: color,
